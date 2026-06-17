@@ -5,12 +5,16 @@
 [![License](https://img.shields.io/github/license/kungaa/DS5-Linux-Decky)](LICENSE)
 
 A [Decky Loader](https://github.com/SteamDeckHomebrew/decky-loader) plugin for the
-**DS5-Linux-Bridge** dongle. It brings the dongle's web config page into the Steam
-Deck Quick Access Menu — glanceable battery, connection status, and controller
-settings, without leaving your game.
+[**DS5-Linux-Bridge**](https://github.com/kungaa/ds5-linux-bridge) dongle — a
+USB-to-Bluetooth bridge for the Sony DualSense on a Raspberry Pi Pico 2 W. It
+brings the dongle's web config page into the Steam Deck Quick Access Menu —
+glanceable battery, connection status, and controller settings, without leaving
+your game.
 
-> The dongle exposes a small HTTP API over a USB-NCM link-local network; this
-> plugin is just another client of it (the embedded web page is the other).
+> **Requires the [DS5-Linux-Bridge](https://github.com/kungaa/ds5-linux-bridge)
+> dongle.** This plugin is a client of the firmware's HTTP API (the dongle's
+> embedded web page is the other client). Without the dongle it has nothing to
+> talk to.
 
 <p align="center">
   <img src="assets/screenshot-status.jpg" width="45%" alt="DS5 Bridge: status and settings in the Quick Access Menu" />
@@ -85,6 +89,11 @@ git push origin v0.3.0
 
 GitHub Actions builds the plugin and publishes a Release with the installable zip
 attached. See [.github/workflows/release.yml](.github/workflows/release.yml).
+
+## Related
+
+- [DS5-Linux-Bridge](https://github.com/kungaa/ds5-linux-bridge) — the dongle
+  firmware this plugin controls (the source of truth for the HTTP API).
 
 ## License
 
