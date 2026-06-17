@@ -40,16 +40,25 @@ than an error. It auto-discovers the dongle across all three selectable subnets
 
 ## Installation
 
-1. On your Steam Deck, install [Decky Loader](https://decky.xyz/) if you haven't.
-2. Download the latest **`DS5-Bridge-vX.Y.Z.zip`** from the
-   [Releases page](https://github.com/kungaa/DS5-Linux-Decky/releases/latest).
-3. In Decky settings, enable **Developer Mode**, then use
-   **"Install Plugin from ZIP"** and pick the downloaded file.
-4. Open the **Quick Access Menu** (`•••` button) — **DS5 Bridge** appears with a
-   🎮 icon.
+Install [Decky Loader](https://decky.xyz/) first, then enable **Developer Mode**
+in Decky settings (this reveals the install options below).
 
-> Not on the Decky store (the plugin is hardware-specific). Install from the
-> Releases page above.
+**Easiest — install from URL.** In Decky settings → **"Install Plugin from URL"**,
+paste this permanent link (always points to the newest release):
+
+```
+https://github.com/kungaa/DS5-Linux-Decky/releases/latest/download/DS5-Bridge.zip
+```
+
+**Or — install from ZIP.** Download the latest `DS5-Bridge.zip` from the
+[Releases page](https://github.com/kungaa/DS5-Linux-Decky/releases/latest), then
+use **"Install Plugin from ZIP"** and pick the file.
+
+Either way, open the **Quick Access Menu** (`•••` button) afterward — **DS5
+Bridge** appears with a 🎮 icon.
+
+> Not on the Decky store (the plugin is hardware-specific). Install from the URL
+> or Releases page above.
 
 ### Troubleshooting
 

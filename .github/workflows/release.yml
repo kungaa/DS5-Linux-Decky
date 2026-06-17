@@ -36,7 +36,11 @@ jobs:
         run: pnpm run build
 
       # Assemble the plugin folder in the exact layout decky-loader expects,
-      # then zip it. The archive name carries the tag for clarity.
+      # then zip it twice:
+      #   - DS5-Bridge-<tag>.zip : versioned, for archival clarity.
+      #   - DS5-Bridge.zip       : stable name, so the permanent
+      #     /releases/latest/download/DS5-Bridge.zip redirect always works
+      #     (the short, never-changing URL we put in the README).
       - name: Package plugin
         run: |
           PLUGIN="DS5 Bridge"
@@ -44,10 +48,14 @@ jobs:
           cp dist/index.js "out/$PLUGIN/dist/"
           cp main.py package.json plugin.json README.md LICENSE "out/$PLUGIN/"
           if [ -d defaults ]; then cp -r defaults "out/$PLUGIN/"; fi
-          cd out && zip -r "../DS5-Bridge-${GITHUB_REF_NAME}.zip" "$PLUGIN"
+          cd out
+          zip -r "../DS5-Bridge-${GITHUB_REF_NAME}.zip" "$PLUGIN"
+          cp "../DS5-Bridge-${GITHUB_REF_NAME}.zip" "../DS5-Bridge.zip"
 
       - name: Publish Release
         uses: softprops/action-gh-release@v2
         with:
-          files: DS5-Bridge-*.zip
+          files: |
+            DS5-Bridge-*.zip
+            DS5-Bridge.zip
           generate_release_notes: true
