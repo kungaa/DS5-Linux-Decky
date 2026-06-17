@@ -1,0 +1,47 @@
+name: Build plugin
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend
+        run: pnpm run build
+
+      # Assemble the plugin folder in the exact layout decky-loader expects.
+      # The zip contains a single top-level folder named after the plugin.
+      - name: Assemble plugin
+        run: |
+          PLUGIN="DS5 Bridge"
+          mkdir -p "out/$PLUGIN/dist"
+          cp dist/index.js "out/$PLUGIN/dist/"
+          cp main.py package.json plugin.json README.md LICENSE "out/$PLUGIN/"
+          # Include any default config/asset files if present.
+          if [ -d defaults ]; then cp -r defaults "out/$PLUGIN/"; fi
+
+      - name: Upload plugin artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DS5-Bridge-plugin
+          path: out/
