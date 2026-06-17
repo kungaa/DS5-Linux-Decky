@@ -23,9 +23,6 @@ SUBNET_IPS = {
     2: "192.168.137.105",
 }
 
-# Reverse map: IP -> subnet index, for reporting which subnet answered.
-IP_SUBNETS = {ip: idx for idx, ip in SUBNET_IPS.items()}
-
 # Keep requests short — lwIP's PCB pool is lean and serves one file at a time.
 HTTP_TIMEOUT = 2.0
 
@@ -75,10 +72,6 @@ class Plugin:
                 )
                 self._base_ip = ip
                 result.setdefault("_reachable", True)
-                # Tell the frontend which subnet/IP actually answered, so it can
-                # show a "connected via" indicator.
-                result["_ip"] = ip
-                result["_subnet"] = IP_SUBNETS.get(ip)
                 return result
             except (URLError, HTTPError, OSError, ValueError) as err:
                 last_err = err

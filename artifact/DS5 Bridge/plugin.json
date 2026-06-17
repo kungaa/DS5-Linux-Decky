@@ -1,0 +1,11 @@
+{
+  "name": "DS5 Bridge",
+  "author": "kungaa",
+  "flags": [],
+  "api_version": 1,
+  "publish": {
+    "tags": ["controller", "dualsense", "bluetooth"],
+    "description": "Battery, status, and settings for the DS5-Linux-Bridge dongle, from the Quick Access Menu.",
+    "image": "https://opengraph.githubassets.com/1/kungaa/DS5-Linux-Decky"
+  }
+}
