@@ -12,8 +12,11 @@ settings, without leaving your game.
 > The dongle exposes a small HTTP API over a USB-NCM link-local network; this
 > plugin is just another client of it (the embedded web page is the other).
 
-<!-- TODO: drop a QAM screenshot here once captured on the Deck:
-![DS5 Bridge in the Quick Access Menu](assets/screenshot.png) -->
+<p align="center">
+  <img src="assets/screenshot-status.jpg" width="45%" alt="DS5 Bridge: status and settings in the Quick Access Menu" />
+  &nbsp;
+  <img src="assets/screenshot-bonds.jpg" width="45%" alt="DS5 Bridge: network subnet and paired controllers" />
+</p>
 
 ## Features
 
