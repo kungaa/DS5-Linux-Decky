@@ -1,0 +1,53 @@
+name: Release plugin
+
+# Hands-off CD: push a version tag (e.g. v0.2.0) and this builds the plugin,
+# zips it in the decky-loader layout, and publishes a GitHub Release with the
+# installable .zip attached. No local steps required.
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write # needed to create the Release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend
+        run: pnpm run build
+
+      # Assemble the plugin folder in the exact layout decky-loader expects,
+      # then zip it. The archive name carries the tag for clarity.
+      - name: Package plugin
+        run: |
+          PLUGIN="DS5 Bridge"
+          mkdir -p "out/$PLUGIN/dist"
+          cp dist/index.js "out/$PLUGIN/dist/"
+          cp main.py package.json plugin.json README.md LICENSE "out/$PLUGIN/"
+          if [ -d defaults ]; then cp -r defaults "out/$PLUGIN/"; fi
+          cd out && zip -r "../DS5-Bridge-${GITHUB_REF_NAME}.zip" "$PLUGIN"
+
+      - name: Publish Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: DS5-Bridge-*.zip
+          generate_release_notes: true
