@@ -153,7 +153,7 @@ function forgetPrompt(addr: string, name: string, isLive: boolean, onDone: () =>
       strTitle={`Forget ${name || addr}?`}
       strDescription={
         (isLive ? "This controller is connected and will disconnect immediately. " : "") +
-        "Its pairing is blacklisted (persists across power cycles). Re-pair with Share + PS."
+        "It won't reconnect until you pair it again (hold Share + PS)."
       }
       strOKButtonText="Forget"
       onOK={async () => {
@@ -352,7 +352,7 @@ function Content() {
                   showModal(
                     <ConfirmModal
                       strTitle="Forget all controllers?"
-                      strDescription="Blacklists every pairing (persists across power cycles). The connected controller disconnects immediately."
+                      strDescription="Forgets every paired controller. None will reconnect until paired again (hold Share + PS), and the connected one disconnects immediately."
                       strOKButtonText="Forget all"
                       onOK={async () => {
                         await forgetAllBonds();
