@@ -62,16 +62,30 @@ Bridge** appears with a 🎮 icon.
 
 ### Troubleshooting
 
-If the plugin shows "No controller connected" even though one is connected, the
-Steam Deck's NetworkManager may not have leased an address on the dongle's
-USB-NCM interface. Verify reachability from a terminal:
+**"Can't reach the dongle" even though a controller is connected.** The dongle's
+USB-NCM network interface only appears when a controller connects, and the Steam
+Deck's NetworkManager doesn't always lease an address on it right away — most
+often right after installing the plugin. While that's happening there's no route
+to the dongle, so fetches (and `curl`) fail.
+
+Quick fixes, in order:
+
+1. Press **Retry** in the plugin.
+2. Toggle the **controller off and back on** (or replug the dongle). This
+   re-creates the interface and prompts NetworkManager to lease it. This is
+   usually all it takes.
+
+Verify reachability from a terminal (Konsole in Desktop Mode):
 
 ```bash
-curl http://10.55.55.105/api/status
+curl http://10.55.55.105/api/status   # should return JSON
+ip addr show | grep 10.55.55           # Deck should have a 10.55.55.106 address
 ```
 
-If that hangs or refuses, it's a host networking issue (DHCP/NetworkManager),
-not the plugin.
+If `curl` fails and there's no `10.55.55.x` address, it's a host networking issue
+(NetworkManager hasn't leased the interface), **not the plugin** — re-toggling the
+controller is the fix. The plugin retries automatically to ride out short delays,
+but it can't create a network route that the host hasn't set up.
 
 ## Development
 

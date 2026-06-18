@@ -75,15 +75,33 @@ const SUBNET_LABELS: Record<number, string> = {
   2: "192.168.137.x",
 };
 
-function StatusHeader({ status }: { status: Status | undefined }) {
+function StatusHeader({
+  status,
+  onRetry,
+}: {
+  status: Status | undefined;
+  onRetry: () => void;
+}) {
   if (!status) {
     return <PanelSectionRow>Loading…</PanelSectionRow>;
   }
   if (!status._reachable) {
     return (
-      <PanelSectionRow>
-        No controller connected (dongle interface only exists while connected).
-      </PanelSectionRow>
+      <>
+        <PanelSectionRow>Can't reach the dongle.</PanelSectionRow>
+        <PanelSectionRow>
+          <span style={{ fontSize: "0.85em", opacity: 0.8 }}>
+            If no controller is connected, this is normal. If one IS connected,
+            the Steam Deck may not have set up the dongle's network yet — toggle
+            the controller off and back on (or replug the dongle), then Retry.
+          </span>
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <ButtonItem layout="below" onClick={onRetry}>
+            Retry
+          </ButtonItem>
+        </PanelSectionRow>
+      </>
     );
   }
   if (!status.connected) {
@@ -151,12 +169,25 @@ function Content() {
   const [config, setConfig_] = useState<Config>();
   const [bonds, setBonds] = useState<Bonds>();
 
-  // Poll live status.
+  const refreshConfig = useCallback(() => getConfig().then(setConfig_), []);
+  const refreshBonds = useCallback(() => getBonds().then(setBonds), []);
+
+  // Poll live status. When it flips from unreachable -> reachable, (re)load
+  // config and bonds too: those only fetch on demand, so if the dongle wasn't
+  // reachable at mount (e.g. NetworkManager hadn't leased the interface yet)
+  // their sections would otherwise stay empty until the panel is reopened.
   useEffect(() => {
     let active = true;
+    let wasReachable = false;
     const tick = async () => {
       const s = await getStatus();
-      if (active) setStatus(s);
+      if (!active) return;
+      setStatus(s);
+      if (s._reachable && !wasReachable) {
+        refreshConfig();
+        refreshBonds();
+      }
+      wasReachable = !!s._reachable;
     };
     tick();
     const id = setInterval(tick, STATUS_POLL_MS);
@@ -164,12 +195,12 @@ function Content() {
       active = false;
       clearInterval(id);
     };
-  }, []);
+  }, [refreshConfig, refreshBonds]);
 
-  const refreshConfig = useCallback(() => getConfig().then(setConfig_), []);
-  const refreshBonds = useCallback(() => getBonds().then(setBonds), []);
-
-  useEffect(() => {
+  // Manual retry: force an immediate re-fetch of everything.
+  const retryAll = useCallback(async () => {
+    const s = await getStatus();
+    setStatus(s);
     refreshConfig();
     refreshBonds();
   }, [refreshConfig, refreshBonds]);
@@ -183,7 +214,7 @@ function Content() {
   return (
     <>
       <PanelSection title="Status">
-        <StatusHeader status={status} />
+        <StatusHeader status={status} onRetry={retryAll} />
         {status?._reachable && status._subnet != null && (
           <PanelSectionRow>
             <div style={{ display: "flex", alignItems: "center", gap: "8px", opacity: 0.7, fontSize: "0.85em" }}>

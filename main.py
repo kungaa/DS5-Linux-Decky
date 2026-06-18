@@ -29,6 +29,14 @@ IP_SUBNETS = {ip: idx for idx, ip in SUBNET_IPS.items()}
 # Keep requests short — lwIP's PCB pool is lean and serves one file at a time.
 HTTP_TIMEOUT = 2.0
 
+# Transient failures are common right after the controller connects: the dongle's
+# USB-NCM interface has just appeared and SteamOS NetworkManager may not have taken
+# its DHCP lease yet, so there's briefly no route to the dongle. Retry a couple of
+# times with a short gap (staying under the ~1/sec rate the firmware tolerates)
+# before declaring the dongle unreachable, to ride out that window.
+RETRY_ATTEMPTS = 3
+RETRY_GAP_S = 0.4
+
 
 class Plugin:
     def __init__(self) -> None:
@@ -53,42 +61,55 @@ class Plugin:
         # Some POST endpoints may return an empty body; tolerate that.
         return json.loads(raw) if raw.strip() else {}
 
-    async def _call(self, path: str, data: dict | None = None) -> dict:
-        """Reach the dongle on `path`, auto-discovering the subnet. Returns the
-        parsed JSON dict, or a dict with `_reachable: False` if unreachable
-        (e.g. no controller connected)."""
-        loop = asyncio.get_event_loop()
-
-        # Try the cached IP first, then probe the rest.
+    def _probe_order(self) -> list[str]:
+        """Cached-IP-first ordering of candidate dongle IPs."""
         candidates: list[str] = []
         if self._base_ip:
             candidates.append(self._base_ip)
         for ip in SUBNET_IPS.values():
             if ip not in candidates:
                 candidates.append(ip)
+        return candidates
 
+    async def _call(self, path: str, data: dict | None = None) -> dict:
+        """Reach the dongle on `path`, auto-discovering the subnet. Returns the
+        parsed JSON dict, or `{_reachable: False, ...}` if unreachable.
+
+        Retries a few times before giving up, to ride out the brief window after
+        a controller connects where the USB-NCM interface exists but SteamOS
+        NetworkManager hasn't leased an address yet (so there's no route)."""
+        loop = asyncio.get_event_loop()
         last_err: Exception | None = None
-        for ip in candidates:
-            try:
-                result = await loop.run_in_executor(
-                    None, self._request, ip, path, data
-                )
-                self._base_ip = ip
-                result.setdefault("_reachable", True)
-                # Tell the frontend which subnet/IP actually answered, so it can
-                # show a "connected via" indicator.
-                result["_ip"] = ip
-                result["_subnet"] = IP_SUBNETS.get(ip)
-                return result
-            except (URLError, HTTPError, OSError, ValueError) as err:
-                last_err = err
-                continue
 
-        # Nothing answered. Most likely no controller is connected (the NCM
-        # interface only exists while connected) — not an error worth shouting.
-        self._base_ip = None
+        for attempt in range(RETRY_ATTEMPTS):
+            for ip in self._probe_order():
+                try:
+                    result = await loop.run_in_executor(
+                        None, self._request, ip, path, data
+                    )
+                    self._base_ip = ip
+                    result.setdefault("_reachable", True)
+                    # Tell the frontend which subnet/IP actually answered, so it
+                    # can show a "connected via" indicator.
+                    result["_ip"] = ip
+                    result["_subnet"] = IP_SUBNETS.get(ip)
+                    return result
+                except (URLError, HTTPError, OSError, ValueError) as err:
+                    last_err = err
+                    continue
+            # No IP answered this round. Drop the cached IP and back off briefly
+            # before retrying (but not on the final attempt).
+            self._base_ip = None
+            if attempt < RETRY_ATTEMPTS - 1:
+                await asyncio.sleep(RETRY_GAP_S)
+
+        # Still nothing after retries. This is usually "no controller connected"
+        # (the NCM interface only exists while connected), but can also be a host
+        # networking hiccup (NetworkManager hasn't leased the dongle interface).
+        # We can't tell the two apart from here, so let the frontend offer the
+        # right guidance (re-plug / re-toggle the controller).
         decky.logger.info(f"dongle unreachable on {path}: {last_err}")
-        return {"_reachable": False}
+        return {"_reachable": False, "_error": str(last_err) if last_err else None}
 
     # --- API methods (called from the frontend via @decky/api) --------------
 
