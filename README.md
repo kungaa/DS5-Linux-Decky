@@ -29,14 +29,17 @@ your game.
 - **Settings** — controller mode, polling rate, audio buffer length,
   idle-disconnect timeout, and onboard LED, saved to the dongle on change.
 - **Network** — shows which subnet the dongle answered on, and lets you switch
-  the dongle's `webconfig_subnet` (the plugin re-discovers it automatically).
-- **Paired controllers** — list, rename, forget, or forget-all bonded
-  controllers.
+  the dongle's `webconfig_subnet` — including a **custom IP** — and the plugin
+  re-discovers it automatically.
+- **Paired controllers** — list, rename, forget, forget-all, or **pair a new
+  controller** (opens a 30-second pairing window).
 
-The dongle's network interface only exists while a controller is connected, so
-when nothing is connected the plugin shows *"No controller connected"* rather
-than an error. It auto-discovers the dongle across all three selectable subnets
-(`10.55.55.105` / `172.31.55.105` / `192.168.137.105`).
+The dongle's network interface is always present (whether or not a controller is
+connected), so the plugin can manage it while idle; "no controller connected" is
+shown as a normal state, not an error. It auto-discovers the dongle across the
+three preset subnets (`10.55.55.105` / `172.31.55.105` / `192.168.137.105`),
+**custom addresses** (by probing the USB-NCM link), and finds **multiple dongles**
+on one Deck — pick which to manage from the **Dongle** dropdown.
 
 ## Installation
 
@@ -62,11 +65,11 @@ Bridge** appears with a 🎮 icon.
 
 ### Troubleshooting
 
-**"Can't reach the dongle" even though a controller is connected.** The dongle's
-USB-NCM network interface only appears when a controller connects, and the Steam
-Deck's NetworkManager doesn't always lease an address on it right away — most
-often right after installing the plugin. While that's happening there's no route
-to the dongle, so fetches (and `curl`) fail.
+**"Can't reach the dongle."** The dongle's USB-NCM network interface is always
+present, but the Steam Deck's NetworkManager doesn't always lease an address on
+it right away — most often right after installing the plugin, or just after a
+controller (re)connects (the link briefly re-enumerates). While that's happening
+there's no route to the dongle, so fetches (and `curl`) fail.
 
 Quick fixes, in order:
 

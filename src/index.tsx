@@ -11,13 +11,14 @@ import {
   staticClasses,
 } from "@decky/ui";
 import { callable, definePlugin } from "@decky/api";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import {
   FaGamepad,
   FaBatteryFull,
   FaBatteryHalf,
   FaBatteryQuarter,
   FaNetworkWired,
+  FaPlus,
 } from "react-icons/fa";
 
 // --- backend bindings (see main.py) ---------------------------------------
@@ -43,6 +44,7 @@ interface Config {
   audio_buffer_length?: number;
   controller_mode?: number;
   webconfig_subnet?: number;
+  webconfig_custom_ip?: string;
 }
 
 interface Bond {
@@ -57,23 +59,48 @@ interface Bonds {
   bonds?: Bond[];
 }
 
-const getStatus = callable<[], Status>("get_status");
-const getConfig = callable<[], Config>("get_config");
-const setConfig = callable<[fields: Record<string, number>], unknown>("set_config");
-const getBonds = callable<[], Bonds>("get_bonds");
-const renameBond = callable<[addr: string, name: string], unknown>("rename_bond");
-const forgetBond = callable<[addr: string], unknown>("forget_bond");
-const forgetAllBonds = callable<[], unknown>("forget_all_bonds");
+interface Dongle {
+  ip: string;
+  subnet?: number;
+  status: Status;
+}
+
+interface Discovery {
+  dongles: Dongle[];
+}
+
+const discover = callable<[], Discovery>("discover");
+const getStatus = callable<[ip: string], Status>("get_status");
+const getConfig = callable<[ip: string], Config>("get_config");
+const setConfig = callable<[ip: string, fields: Record<string, number | string>], unknown>(
+  "set_config"
+);
+const getBonds = callable<[ip: string], Bonds>("get_bonds");
+const renameBond = callable<[ip: string, addr: string, name: string], unknown>("rename_bond");
+const forgetBond = callable<[ip: string, addr: string], unknown>("forget_bond");
+const forgetAllBonds = callable<[ip: string], unknown>("forget_all_bonds");
+const pairController = callable<[ip: string], unknown>("pair_controller");
 
 // Poll cadence — match the web page's ~4s to stay gentle on lwIP's PCB pool.
 const STATUS_POLL_MS = 4000;
+// Re-run discovery less often than per-status — it probes several addresses.
+const DISCOVERY_POLL_MS = 12000;
 
-// Labels for the three selectable subnets (webconfig_subnet 0-2).
+// Labels for the selectable subnets (webconfig_subnet 0-3).
 const SUBNET_LABELS: Record<number, string> = {
   0: "10.55.55.x (default)",
   1: "172.31.55.x",
   2: "192.168.137.x",
+  3: "Custom IP",
 };
+
+// A subnet index of 3 means the dongle is on a user-typed custom address.
+const CUSTOM_SUBNET = 3;
+
+function subnetDescr(d: Dongle): string {
+  if (d.subnet != null && SUBNET_LABELS[d.subnet]) return SUBNET_LABELS[d.subnet];
+  return d.ip; // custom / NCM-discovered address with no preset index
+}
 
 function StatusHeader({
   status,
@@ -91,9 +118,9 @@ function StatusHeader({
         <PanelSectionRow>Can't reach the dongle.</PanelSectionRow>
         <PanelSectionRow>
           <span style={{ fontSize: "0.85em", opacity: 0.8 }}>
-            If no controller is connected, this is normal. If one IS connected,
-            the Steam Deck may not have set up the dongle's network yet — toggle
-            the controller off and back on (or replug the dongle), then Retry.
+            The dongle's network interface is always present, so this is usually
+            the Steam Deck not having leased its address yet. Toggle the
+            controller off and back on (or replug the dongle), then Retry.
           </span>
         </PanelSectionRow>
         <PanelSectionRow>
@@ -105,7 +132,9 @@ function StatusHeader({
     );
   }
   if (!status.connected) {
-    return <PanelSectionRow>Dongle reachable — waiting for controller.</PanelSectionRow>;
+    return (
+      <PanelSectionRow>Dongle reachable — no controller connected.</PanelSectionRow>
+    );
   }
 
   const pct = status.battery_pct ?? 0;
@@ -131,14 +160,14 @@ function StatusHeader({
   );
 }
 
-function renamePrompt(addr: string, current: string, onDone: () => void) {
+function renamePrompt(ip: string, addr: string, current: string, onDone: () => void) {
   let value = current;
   showModal(
     <ConfirmModal
       strTitle="Rename controller"
       strDescription="Up to 15 characters."
       onOK={async () => {
-        await renameBond(addr, value.slice(0, 15));
+        await renameBond(ip, addr, value.slice(0, 15));
         onDone();
       }}
     >
@@ -147,7 +176,13 @@ function renamePrompt(addr: string, current: string, onDone: () => void) {
   );
 }
 
-function forgetPrompt(addr: string, name: string, isLive: boolean, onDone: () => void) {
+function forgetPrompt(
+  ip: string,
+  addr: string,
+  name: string,
+  isLive: boolean,
+  onDone: () => void
+) {
   showModal(
     <ConfirmModal
       strTitle={`Forget ${name || addr}?`}
@@ -157,30 +192,51 @@ function forgetPrompt(addr: string, name: string, isLive: boolean, onDone: () =>
       }
       strOKButtonText="Forget"
       onOK={async () => {
-        await forgetBond(addr);
+        await forgetBond(ip, addr);
         onDone();
       }}
     />
   );
 }
 
-function Content() {
-  const [status, setStatus] = useState<Status>();
+// Editing a custom dongle IP. The firmware re-validates (must be a private IPv4)
+// and the change only takes effect after replug, so we just POST what's typed.
+function customIpPrompt(ip: string, current: string, onDone: () => void) {
+  let value = current && current !== "0.0.0.0" ? current : "";
+  showModal(
+    <ConfirmModal
+      strTitle="Custom dongle IP"
+      strDescription="A private IPv4 address (e.g. 10.55.55.105). Takes effect after the dongle is replugged."
+      onOK={async () => {
+        const v = value.trim();
+        if (v) {
+          await setConfig(ip, { webconfig_subnet: CUSTOM_SUBNET, webconfig_custom_ip: v });
+        }
+        onDone();
+      }}
+    >
+      <TextField defaultValue={value} onChange={(e) => (value = e.target.value)} />
+    </ConfirmModal>
+  );
+}
+
+// One dongle's panels: status, settings, network, bonds. Scoped to `ip`.
+function DongleView({ ip, statusHint }: { ip: string; statusHint?: Status }) {
+  const [status, setStatus] = useState<Status | undefined>(statusHint);
   const [config, setConfig_] = useState<Config>();
   const [bonds, setBonds] = useState<Bonds>();
 
-  const refreshConfig = useCallback(() => getConfig().then(setConfig_), []);
-  const refreshBonds = useCallback(() => getBonds().then(setBonds), []);
+  const refreshConfig = useCallback(() => getConfig(ip).then(setConfig_), [ip]);
+  const refreshBonds = useCallback(() => getBonds(ip).then(setBonds), [ip]);
 
-  // Poll live status. When it flips from unreachable -> reachable, (re)load
-  // config and bonds too: those only fetch on demand, so if the dongle wasn't
-  // reachable at mount (e.g. NetworkManager hadn't leased the interface yet)
-  // their sections would otherwise stay empty until the panel is reopened.
+  // Poll live status for this dongle. When it flips from unreachable -> reachable,
+  // (re)load config and bonds too: those only fetch on demand, so if the dongle
+  // wasn't reachable at mount their sections would otherwise stay empty.
   useEffect(() => {
     let active = true;
     let wasReachable = false;
     const tick = async () => {
-      const s = await getStatus();
+      const s = await getStatus(ip);
       if (!active) return;
       setStatus(s);
       if (s._reachable && !wasReachable) {
@@ -195,31 +251,37 @@ function Content() {
       active = false;
       clearInterval(id);
     };
-  }, [refreshConfig, refreshBonds]);
+  }, [ip, refreshConfig, refreshBonds]);
 
-  // Manual retry: force an immediate re-fetch of everything.
   const retryAll = useCallback(async () => {
-    const s = await getStatus();
+    const s = await getStatus(ip);
     setStatus(s);
     refreshConfig();
     refreshBonds();
-  }, [refreshConfig, refreshBonds]);
+  }, [ip, refreshConfig, refreshBonds]);
 
   // Persist a single config field and optimistically update local state.
-  const updateField = useCallback(async (field: keyof Config, value: number) => {
-    setConfig_((prev) => (prev ? { ...prev, [field]: value } : prev));
-    await setConfig({ [field]: value });
-  }, []);
+  const updateField = useCallback(
+    async (field: keyof Config, value: number) => {
+      setConfig_((prev) => (prev ? { ...prev, [field]: value } : prev));
+      await setConfig(ip, { [field]: value });
+    },
+    [ip]
+  );
 
   return (
     <>
       <PanelSection title="Status">
         <StatusHeader status={status} onRetry={retryAll} />
-        {status?._reachable && status._subnet != null && (
+        {status?._reachable && (
           <PanelSectionRow>
             <div style={{ display: "flex", alignItems: "center", gap: "8px", opacity: 0.7, fontSize: "0.85em" }}>
               <FaNetworkWired />
-              <span>Connected via {SUBNET_LABELS[status._subnet] ?? status._ip}</span>
+              <span>
+                {status._subnet != null && SUBNET_LABELS[status._subnet]
+                  ? SUBNET_LABELS[status._subnet]
+                  : status._ip}
+              </span>
             </div>
           </PanelSectionRow>
         )}
@@ -304,11 +366,31 @@ function Content() {
                 { data: 0, label: SUBNET_LABELS[0] },
                 { data: 1, label: SUBNET_LABELS[1] },
                 { data: 2, label: SUBNET_LABELS[2] },
+                { data: 3, label: SUBNET_LABELS[3] },
               ]}
               selectedOption={config.webconfig_subnet ?? 0}
-              onChange={(o) => updateField("webconfig_subnet", o.data)}
+              onChange={(o) =>
+                o.data === CUSTOM_SUBNET
+                  ? customIpPrompt(ip, config.webconfig_custom_ip ?? "", refreshConfig)
+                  : updateField("webconfig_subnet", o.data)
+              }
             />
           </PanelSectionRow>
+          {config.webconfig_subnet === CUSTOM_SUBNET && (
+            <PanelSectionRow>
+              <ButtonItem
+                layout="below"
+                label="Custom IP"
+                onClick={() =>
+                  customIpPrompt(ip, config.webconfig_custom_ip ?? "", refreshConfig)
+                }
+              >
+                {config.webconfig_custom_ip && config.webconfig_custom_ip !== "0.0.0.0"
+                  ? config.webconfig_custom_ip
+                  : "Set address…"}
+              </ButtonItem>
+            </PanelSectionRow>
+          )}
         </PanelSection>
       )}
 
@@ -331,9 +413,9 @@ function Content() {
                         strOKButtonText="Rename"
                         strMiddleButtonText="Forget"
                         strCancelButtonText="Close"
-                        onOK={() => renamePrompt(b.addr, b.name, refreshBonds)}
+                        onOK={() => renamePrompt(ip, b.addr, b.name, refreshBonds)}
                         onMiddleButton={() =>
-                          forgetPrompt(b.addr, b.name, isLive, refreshBonds)
+                          forgetPrompt(ip, b.addr, b.name, isLive, refreshBonds)
                         }
                       />
                     )
@@ -344,6 +426,33 @@ function Content() {
               </PanelSectionRow>
             );
           })}
+          <PanelSectionRow>
+            <ButtonItem
+              layout="below"
+              onClick={() =>
+                showModal(
+                  <ConfirmModal
+                    strTitle="Pair a new controller"
+                    strDescription="Put the controller into pairing mode (hold Share + PS until the light bar flashes), then confirm. This opens a 30-second pairing window and briefly disconnects any controller that's currently connected (it stays paired and reconnects afterward)."
+                    strOKButtonText="Start pairing"
+                    onOK={async () => {
+                      // Fire-and-forget: the NCM link blips as the current
+                      // controller drops, so don't block on it. Refresh bonds a
+                      // moment later once the new controller has had a chance to
+                      // connect.
+                      pairController(ip);
+                      setTimeout(refreshBonds, 6000);
+                    }}
+                  />
+                )
+              }
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                <FaPlus />
+                <span>Pair new controller</span>
+              </div>
+            </ButtonItem>
+          </PanelSectionRow>
           {(bonds.bonds ?? []).length > 0 && (
             <PanelSectionRow>
               <ButtonItem
@@ -355,7 +464,7 @@ function Content() {
                       strDescription="Forgets every paired controller. None will reconnect until paired again (hold Share + PS), and the connected one disconnects immediately."
                       strOKButtonText="Forget all"
                       onOK={async () => {
-                        await forgetAllBonds();
+                        await forgetAllBonds(ip);
                         refreshBonds();
                       }}
                     />
@@ -368,6 +477,90 @@ function Content() {
           )}
         </PanelSection>
       )}
+    </>
+  );
+}
+
+function Content() {
+  const [dongles, setDongles] = useState<Dongle[]>();
+  const [selected, setSelected] = useState<string>();
+  // Remember the user's explicit pick so re-discovery doesn't yank them around.
+  const userPicked = useRef(false);
+
+  const runDiscovery = useCallback(async () => {
+    const d = await discover();
+    setDongles(d.dongles);
+    setSelected((prev) => {
+      // Keep the current selection if it's still present; otherwise default to
+      // the first discovered dongle.
+      if (prev && d.dongles.some((x) => x.ip === prev)) return prev;
+      userPicked.current = false;
+      return d.dongles[0]?.ip;
+    });
+  }, []);
+
+  useEffect(() => {
+    runDiscovery();
+    const id = setInterval(runDiscovery, DISCOVERY_POLL_MS);
+    return () => clearInterval(id);
+  }, [runDiscovery]);
+
+  if (!dongles) {
+    return (
+      <PanelSection title="Status">
+        <PanelSectionRow>Looking for the dongle…</PanelSectionRow>
+      </PanelSection>
+    );
+  }
+
+  if (dongles.length === 0) {
+    return (
+      <PanelSection title="Status">
+        <PanelSectionRow>No dongle found.</PanelSectionRow>
+        <PanelSectionRow>
+          <span style={{ fontSize: "0.85em", opacity: 0.8 }}>
+            Make sure the dongle is plugged in. If it is, the Steam Deck may not
+            have leased its address yet — toggle the controller off and back on
+            (or replug the dongle), then Refresh.
+          </span>
+        </PanelSectionRow>
+        <PanelSectionRow>
+          <ButtonItem layout="below" onClick={runDiscovery}>
+            Refresh
+          </ButtonItem>
+        </PanelSectionRow>
+      </PanelSection>
+    );
+  }
+
+  const current = selected ?? dongles[0].ip;
+
+  return (
+    <>
+      {dongles.length > 1 && (
+        <PanelSection title="Dongle">
+          <PanelSectionRow>
+            <DropdownItem
+              label="Selected dongle"
+              menuLabel="Selected dongle"
+              rgOptions={dongles.map((d) => ({
+                data: d.ip,
+                label: `${subnetDescr(d)}${d.status?.connected ? " • connected" : ""}`,
+              }))}
+              selectedOption={current}
+              onChange={(o) => {
+                userPicked.current = true;
+                setSelected(o.data as string);
+              }}
+            />
+          </PanelSectionRow>
+        </PanelSection>
+      )}
+      <DongleView
+        key={current}
+        ip={current}
+        statusHint={dongles.find((d) => d.ip === current)?.status}
+      />
     </>
   );
 }
