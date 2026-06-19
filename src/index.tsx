@@ -97,6 +97,11 @@ const SUBNET_LABELS: Record<number, string> = {
 // A subnet index of 3 means the dongle is on a user-typed custom address.
 const CUSTOM_SUBNET = 3;
 
+// Decky may remount plugin content around QAM/modal interactions. Keep the
+// chosen dongle outside React state too, so a remount does not silently fall
+// back to the first-discovered dongle.
+let rememberedSelectedIp: string | undefined;
+
 function subnetDescr(d: Dongle): string {
   if (d.subnet != null && SUBNET_LABELS[d.subnet]) return SUBNET_LABELS[d.subnet];
   return d.ip; // custom / NCM-discovered address with no preset index
@@ -483,17 +488,27 @@ function DongleView({ ip, statusHint }: { ip: string; statusHint?: Status }) {
 
 function Content() {
   const [dongles, setDongles] = useState<Dongle[]>();
-  const [selectedIp, setSelectedIp] = useState<string>();
+  const [selectedIp, setSelectedIp] = useState<string | undefined>(
+    () => rememberedSelectedIp
+  );
 
   const runDiscovery = useCallback(async () => {
     const d = await discover();
     setDongles(d.dongles);
     setSelectedIp((prev) => {
+      const preferred = prev ?? rememberedSelectedIp;
       // Keep the current selection if it's still present; otherwise default to
       // the first discovered dongle.
-      if (prev && d.dongles.some((x) => x.ip === prev)) return prev;
-      return d.dongles[0]?.ip;
+      if (preferred && d.dongles.some((x) => x.ip === preferred)) return preferred;
+      const fallback = d.dongles[0]?.ip;
+      rememberedSelectedIp = fallback;
+      return fallback;
     });
+  }, []);
+
+  const selectDongle = useCallback((ip: string) => {
+    rememberedSelectedIp = ip;
+    setSelectedIp(ip);
   }, []);
 
   useEffect(() => {
@@ -531,31 +546,41 @@ function Content() {
   }
 
   const current = selectedIp ?? dongles[0].ip;
-  const selectedIndex = Math.max(
-    0,
-    dongles.findIndex((d) => d.ip === current)
-  );
 
   return (
     <>
       {dongles.length > 1 && (
         <PanelSection title="Dongle">
-          <PanelSectionRow>
-            <DropdownItem
-              label="Selected dongle"
-              menuLabel="Selected dongle"
-              rgOptions={dongles.map((d, index) => ({
-                data: index,
-                label: `${subnetDescr(d)}${d.status?.connected ? " • connected" : ""}`,
-              }))}
-              selectedOption={selectedIndex}
-              onChange={(o) => {
-                const nextIndex = Number(o.data);
-                const next = Number.isInteger(nextIndex) ? dongles[nextIndex] : undefined;
-                if (next) setSelectedIp(next.ip);
-              }}
-            />
-          </PanelSectionRow>
+          {dongles.map((d) => {
+            const isSelected = d.ip === current;
+            return (
+              <PanelSectionRow key={d.ip}>
+                <ButtonItem
+                  layout="below"
+                  label={subnetDescr(d)}
+                  onClick={() => selectDongle(d.ip)}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: "8px",
+                    }}
+                  >
+                    <span>{d.ip}</span>
+                    <span style={{ opacity: 0.75 }}>
+                      {isSelected
+                        ? "Selected"
+                        : d.status?.connected
+                          ? "Controller connected"
+                          : "Idle"}
+                    </span>
+                  </div>
+                </ButtonItem>
+              </PanelSectionRow>
+            );
+          })}
         </PanelSection>
       )}
       <DongleView
