@@ -28,6 +28,8 @@ your game.
   DualSense Edge), polled ~every 4 s.
 - **Settings** — controller mode, polling rate, audio buffer length,
   idle-disconnect timeout, and onboard LED, saved to the dongle on change.
+- **Dongle selector** — when multiple dongles are found, shows each dongle as a
+  selectable row with its IP/subnet and current state.
 - **Network** — shows which subnet the dongle answered on, and lets you switch
   the dongle's `webconfig_subnet` — including a **custom IP** — and the plugin
   re-discovers it automatically.
@@ -39,7 +41,14 @@ connected), so the plugin can manage it while idle; "no controller connected" is
 shown as a normal state, not an error. It auto-discovers the dongle across the
 three preset subnets (`10.55.55.105` / `172.31.55.105` / `192.168.137.105`),
 **custom addresses** (by probing the USB-NCM link), and finds **multiple dongles**
-on one Deck — pick which to manage from the **Dongle** dropdown.
+on one Deck.
+
+When more than one dongle is reachable, a **Dongle** section appears above the
+status panel. Each row is one discovered dongle; click a row to make it the
+active dongle. The selected dongle's status, settings, network config, and
+paired-controller list are then shown below. The selector keeps the chosen IP
+while the plugin re-discovers devices, so it should not jump back to the first
+dongle unless the selected one disappears.
 
 ## Installation
 
