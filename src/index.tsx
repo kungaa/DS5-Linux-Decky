@@ -11,7 +11,7 @@ import {
   staticClasses,
 } from "@decky/ui";
 import { callable, definePlugin } from "@decky/api";
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
   FaGamepad,
   FaBatteryFull,
@@ -483,18 +483,15 @@ function DongleView({ ip, statusHint }: { ip: string; statusHint?: Status }) {
 
 function Content() {
   const [dongles, setDongles] = useState<Dongle[]>();
-  const [selected, setSelected] = useState<string>();
-  // Remember the user's explicit pick so re-discovery doesn't yank them around.
-  const userPicked = useRef(false);
+  const [selectedIp, setSelectedIp] = useState<string>();
 
   const runDiscovery = useCallback(async () => {
     const d = await discover();
     setDongles(d.dongles);
-    setSelected((prev) => {
+    setSelectedIp((prev) => {
       // Keep the current selection if it's still present; otherwise default to
       // the first discovered dongle.
       if (prev && d.dongles.some((x) => x.ip === prev)) return prev;
-      userPicked.current = false;
       return d.dongles[0]?.ip;
     });
   }, []);
@@ -533,7 +530,11 @@ function Content() {
     );
   }
 
-  const current = selected ?? dongles[0].ip;
+  const current = selectedIp ?? dongles[0].ip;
+  const selectedIndex = Math.max(
+    0,
+    dongles.findIndex((d) => d.ip === current)
+  );
 
   return (
     <>
@@ -543,14 +544,15 @@ function Content() {
             <DropdownItem
               label="Selected dongle"
               menuLabel="Selected dongle"
-              rgOptions={dongles.map((d) => ({
-                data: d.ip,
+              rgOptions={dongles.map((d, index) => ({
+                data: index,
                 label: `${subnetDescr(d)}${d.status?.connected ? " • connected" : ""}`,
               }))}
-              selectedOption={current}
+              selectedOption={selectedIndex}
               onChange={(o) => {
-                userPicked.current = true;
-                setSelected(o.data as string);
+                const nextIndex = Number(o.data);
+                const next = Number.isInteger(nextIndex) ? dongles[nextIndex] : undefined;
+                if (next) setSelectedIp(next.ip);
               }}
             />
           </PanelSectionRow>
