@@ -1,6 +1,6 @@
 {
   "name": "ds5-linux-decky",
-  "version": "0.3.4",
+  "version": "0.4.0",
   "description": "Decky Loader plugin for the DS5-Linux-Bridge dongle: battery, status, and settings in the QAM.",
   "type": "module",
   "scripts": {
